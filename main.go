@@ -2,17 +2,27 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 
 	"github.com/iskorotkov/team-metrics/format/bars"
+	"github.com/iskorotkov/team-metrics/format/progress"
 	"github.com/iskorotkov/team-metrics/providers/github"
 	"github.com/iskorotkov/team-metrics/providers/jira"
 	"github.com/iskorotkov/team-metrics/transform/maps"
 	"github.com/joho/godotenv"
+	"golang.org/x/sync/errgroup"
 )
+
+var providers = map[string]func(context.Context, io.Writer) error{
+	"github": runGithub,
+	"jira":   runJira,
+}
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -29,25 +39,71 @@ func main() {
 }
 
 func run(ctx context.Context) error {
+	eg, ctx := errgroup.WithContext(ctx)
+
+	var readers []*io.PipeReader
 	for s := range strings.SplitSeq(os.Getenv("MODE"), ",") {
-		switch s {
-		case "github":
-			if err := runGithub(ctx); err != nil {
-				return fmt.Errorf("run GitHub metrics: %w", err)
+		r, w := io.Pipe()
+		readers = append(readers, r)
+
+		ctx := progress.WithProgressWriter(ctx, w)
+
+		eg.Go(func() error {
+			defer func() {
+				_ = w.Close()
+			}()
+
+			fn, ok := providers[s]
+			if !ok {
+				return fmt.Errorf("unknown provider: %s", s)
 			}
-		case "jira":
-			if err := runJira(ctx); err != nil {
-				return fmt.Errorf("run JIRA metrics: %w", err)
+			if err := fn(ctx, w); err != nil {
+				return fmt.Errorf("run %s provider: %w", s, err)
 			}
-		default:
-			return fmt.Errorf("unknown mode: %s", s)
+			return nil
+		})
+	}
+
+	var chs []chan []byte
+	for _, r := range readers {
+		ch := make(chan []byte, 2048)
+		chs = append(chs, ch)
+
+		eg.Go(func() error {
+			defer close(ch)
+
+			var chunk [64]byte
+			for {
+				n, err := r.Read(chunk[:])
+				if n > 0 {
+					ch <- slices.Clone(chunk[:n])
+				}
+				if errors.Is(err, io.EOF) {
+					return nil
+				}
+				if err != nil {
+					return fmt.Errorf("read from pipe: %w", err)
+				}
+			}
+		})
+	}
+
+	for _, ch := range chs {
+		for chunk := range ch {
+			if _, err := os.Stdout.Write(chunk); err != nil {
+				return fmt.Errorf("write to stdout: %w", err)
+			}
 		}
+	}
+
+	if err := eg.Wait(); err != nil {
+		return fmt.Errorf("wait for goroutines: %w", err)
 	}
 
 	return nil
 }
 
-func runJira(ctx context.Context) error {
+func runJira(ctx context.Context, w io.Writer) error {
 	j, err := jira.New(os.Getenv("JIRA_URL"), os.Getenv("JIRA_USER"), os.Getenv("JIRA_TOKEN"))
 	if err != nil {
 		return fmt.Errorf("create JIRA client: %w", err)
@@ -67,7 +123,7 @@ func runJira(ctx context.Context) error {
 		issuesByUser[name] = append(issuesByUser[name], issue)
 	}
 
-	fmt.Printf("JIRA Issues:\n%s\n", bars.Bars(maps.Count(issuesByUser)))
+	_, _ = fmt.Fprintf(w, "JIRA Issues:\n%s\n", bars.Bars(maps.Count(issuesByUser)))
 
 	issueKeys := make([]string, 0, len(issues))
 	for _, issue := range issues {
@@ -85,12 +141,12 @@ func runJira(ctx context.Context) error {
 		commentsByUser[name] = append(commentsByUser[name], comment)
 	}
 
-	fmt.Printf("JIRA Comments:\n%s\n", bars.Bars(maps.Count(commentsByUser)))
+	_, _ = fmt.Fprintf(w, "JIRA Comments:\n%s\n", bars.Bars(maps.Count(commentsByUser)))
 
 	return nil
 }
 
-func runGithub(ctx context.Context) error {
+func runGithub(ctx context.Context, w io.Writer) error {
 	gh := github.New(os.Getenv("GITHUB_TOKEN"))
 
 	prs, err := gh.OpenPRs(ctx, os.Getenv("GITHUB_OWNER"), os.Getenv("GITHUB_REPO"))
@@ -104,7 +160,7 @@ func runGithub(ctx context.Context) error {
 		prsByUser[login] = append(prsByUser[login], pr)
 	}
 
-	fmt.Printf("Open PRs:\n%s\n", bars.Bars(maps.Count(prsByUser)))
+	_, _ = fmt.Fprintf(w, "Open PRs:\n%s\n", bars.Bars(maps.Count(prsByUser)))
 
 	prs, err = gh.ClosedPRs(ctx, os.Getenv("GITHUB_OWNER"), os.Getenv("GITHUB_REPO"))
 	if err != nil {
@@ -117,7 +173,7 @@ func runGithub(ctx context.Context) error {
 		closedPRsByUser[login] = append(closedPRsByUser[login], pr)
 	}
 
-	fmt.Printf("Closed PRs:\n%s\n", bars.Bars(maps.Count(closedPRsByUser)))
+	_, _ = fmt.Fprintf(w, "Closed PRs:\n%s\n", bars.Bars(maps.Count(closedPRsByUser)))
 
 	prNumbers := make([]int, 0, len(prs))
 	for _, pr := range prs {
@@ -135,7 +191,7 @@ func runGithub(ctx context.Context) error {
 		reviewsByUser[login] = append(reviewsByUser[login], review)
 	}
 
-	fmt.Printf("PR Reviews:\n%s\n", bars.Bars(maps.Count(reviewsByUser)))
+	_, _ = fmt.Fprintf(w, "PR Reviews:\n%s\n", bars.Bars(maps.Count(reviewsByUser)))
 
 	comments, err := gh.PRComments(ctx, os.Getenv("GITHUB_OWNER"), os.Getenv("GITHUB_REPO"), prNumbers...)
 	if err != nil {
@@ -148,7 +204,7 @@ func runGithub(ctx context.Context) error {
 		commentsByUser[login] = append(commentsByUser[login], comment)
 	}
 
-	fmt.Printf("PR Comments:\n%s\n", bars.Bars(maps.Count(commentsByUser)))
+	_, _ = fmt.Fprintf(w, "PR Comments:\n%s\n", bars.Bars(maps.Count(commentsByUser)))
 
 	return nil
 }

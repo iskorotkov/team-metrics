@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/andygrunwald/go-jira"
+	"github.com/iskorotkov/team-metrics/format/progress"
 )
 
 type (
@@ -50,7 +51,8 @@ func (c *Client) IssueComments(ctx context.Context, keys ...string) ([]Comment, 
 		return nil, nil
 	}
 
-	fmt.Printf("Fetching comments for %d issues: ", len(keys))
+	w := progress.ProgressWriter(ctx)
+	_, _ = fmt.Fprintf(w, "Fetching comments for %d issues: ", len(keys))
 
 	var comments []Comment
 	for _, key := range keys {
@@ -63,10 +65,10 @@ func (c *Client) IssueComments(ctx context.Context, keys ...string) ([]Comment, 
 			comments = append(comments, *comment)
 		}
 
-		fmt.Printf(".")
+		_, _ = fmt.Fprintf(w, ".")
 	}
 
-	fmt.Printf(" - done\n\n")
+	_, _ = fmt.Fprintf(w, " - done\n\n")
 
 	return comments, nil
 }

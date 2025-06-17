@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v72/github"
+	"github.com/iskorotkov/team-metrics/format/progress"
 )
 
 type (
@@ -62,7 +63,8 @@ func (c *Client) PRReviews(ctx context.Context, owner, repo string, numbers ...i
 		return nil, nil
 	}
 
-	fmt.Printf("Fetching reviews for %d PRs: ", len(numbers))
+	w := progress.ProgressWriter(ctx)
+	_, _ = fmt.Fprintf(w, "Fetching reviews for %d PRs: ", len(numbers))
 
 	var allReviews []*PullRequestReview
 	for _, number := range numbers {
@@ -74,10 +76,10 @@ func (c *Client) PRReviews(ctx context.Context, owner, repo string, numbers ...i
 		}
 
 		allReviews = append(allReviews, reviews...)
-		fmt.Print(".")
+		_, _ = fmt.Fprintf(w, ".")
 	}
 
-	fmt.Print(" - done\n\n")
+	_, _ = fmt.Fprintf(w, " - done\n\n")
 
 	return allReviews, nil
 }
@@ -87,7 +89,8 @@ func (c *Client) PRComments(ctx context.Context, owner, repo string, numbers ...
 		return nil, nil
 	}
 
-	fmt.Printf("Fetching comments for %d PRs: ", len(numbers))
+	w := progress.ProgressWriter(ctx)
+	_, _ = fmt.Fprintf(w, "Fetching comments for %d PRs: ", len(numbers))
 
 	var allComments []*PullRequestComment
 	for _, number := range numbers {
@@ -101,10 +104,10 @@ func (c *Client) PRComments(ctx context.Context, owner, repo string, numbers ...
 		}
 
 		allComments = append(allComments, comments...)
-		fmt.Print(".")
+		_, _ = fmt.Fprintf(w, ".")
 	}
 
-	fmt.Print(" - done\n\n")
+	_, _ = fmt.Fprintf(w, " - done\n\n")
 
 	return allComments, nil
 }

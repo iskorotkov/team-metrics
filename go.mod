@@ -6,6 +6,7 @@ require (
 	github.com/andygrunwald/go-jira v1.16.0
 	github.com/google/go-github/v72 v72.0.0
 	github.com/joho/godotenv v1.5.1
+	golang.org/x/sync v0.15.0
 )
 
 require (
