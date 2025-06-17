@@ -15,7 +15,7 @@ type (
 	Comment = jira.Comment
 )
 
-func New(url string, user, token string) (*Client, error) {
+func New(url, user, token string) (*Client, error) {
 	c, err := jira.NewClient(&http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &jira.BasicAuthTransport{
