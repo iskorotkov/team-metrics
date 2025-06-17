@@ -1,9 +1,11 @@
 package github
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/go-github/v72/github"
@@ -34,7 +36,9 @@ type Client struct {
 
 func (c *Client) OpenPRs(ctx context.Context, owner, repo string) ([]*PullRequest, error) {
 	prs, _, err := c.c.PullRequests.List(ctx, owner, repo, &github.PullRequestListOptions{
-		State: "open",
+		State:     "open",
+		Sort:      "created",
+		Direction: "desc",
 		ListOptions: github.ListOptions{
 			PerPage: 100,
 		},
@@ -47,7 +51,9 @@ func (c *Client) OpenPRs(ctx context.Context, owner, repo string) ([]*PullReques
 
 func (c *Client) ClosedPRs(ctx context.Context, owner, repo string) ([]*PullRequest, error) {
 	prs, _, err := c.c.PullRequests.List(ctx, owner, repo, &github.PullRequestListOptions{
-		State: "closed",
+		State:     "closed",
+		Sort:      "created",
+		Direction: "desc",
 		ListOptions: github.ListOptions{
 			PerPage: 100,
 		},
@@ -74,6 +80,14 @@ func (c *Client) PRReviews(ctx context.Context, owner, repo string, numbers ...i
 		if err != nil {
 			return nil, fmt.Errorf("get reviews for PR #%d: %w", number, err)
 		}
+
+		slices.SortStableFunc(reviews, func(a, b *PullRequestReview) int {
+			return cmp.Compare(a.GetUser().GetLogin(), b.GetUser().GetLogin())
+		})
+
+		reviews = slices.CompactFunc(reviews, func(a, b *PullRequestReview) bool {
+			return a.GetUser().GetLogin() == b.GetUser().GetLogin()
+		})
 
 		allReviews = append(allReviews, reviews...)
 		_, _ = fmt.Fprintf(w, ".")
