@@ -16,15 +16,14 @@ type (
 )
 
 func New(token string) *Client {
-	c := github.NewClient(&http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &github.BasicAuthTransport{
-			Username: "",
-			Password: token,
-		},
-	})
 	return &Client{
-		c: c,
+		c: github.NewClient(&http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &github.BasicAuthTransport{
+				Username: "",
+				Password: token,
+			},
+		}),
 	}
 }
 
@@ -78,7 +77,7 @@ func (c *Client) PRReviews(ctx context.Context, owner, repo string, numbers ...i
 		fmt.Print(".")
 	}
 
-	fmt.Printf(" - done\n\n")
+	fmt.Print(" - done\n\n")
 
 	return allReviews, nil
 }
@@ -105,7 +104,7 @@ func (c *Client) PRComments(ctx context.Context, owner, repo string, numbers ...
 		fmt.Print(".")
 	}
 
-	fmt.Printf(" - done\n\n")
+	fmt.Print(" - done\n\n")
 
 	return allComments, nil
 }
