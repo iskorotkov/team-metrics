@@ -15,6 +15,7 @@ import (
 	"github.com/iskorotkov/team-metrics/providers/confluence"
 	"github.com/iskorotkov/team-metrics/providers/github"
 	"github.com/iskorotkov/team-metrics/providers/jira"
+	"github.com/iskorotkov/team-metrics/providers/slack"
 	"github.com/iskorotkov/team-metrics/transform/maps"
 	"github.com/joho/godotenv"
 	"golang.org/x/sync/errgroup"
@@ -24,6 +25,7 @@ var providers = map[string]func(context.Context, io.Writer) error{
 	"github":     runGithub,
 	"jira":       runJira,
 	"confluence": runConfluence,
+	"slack":      runSlack,
 }
 
 func main() {
@@ -101,6 +103,25 @@ func run(ctx context.Context) error {
 	if err := eg.Wait(); err != nil {
 		return fmt.Errorf("wait for goroutines: %w", err)
 	}
+
+	return nil
+}
+
+func runSlack(ctx context.Context, w io.Writer) error {
+	c := slack.New(os.Getenv("SLACK_TOKEN"))
+
+	messages, err := c.Messages(ctx, os.Getenv("SLACK_QUERY"))
+	if err != nil {
+		return fmt.Errorf("get Slack messages: %w", err)
+	}
+
+	messagesByUser := make(map[string][]slack.SearchMessage, len(messages))
+	for _, message := range messages {
+		name := message.User
+		messagesByUser[name] = append(messagesByUser[name], message)
+	}
+
+	_, _ = fmt.Fprintf(w, "Slack Messages:\n%s\n", bars.Bars(maps.Count(messagesByUser)))
 
 	return nil
 }
